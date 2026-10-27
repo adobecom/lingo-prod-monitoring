@@ -1,0 +1,32 @@
+{
+  "name": "lingo-prod-monitoring",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Daily Lingo production monitoring for www.adobe.com (Playwright, desktop + mobile, Slack report)",
+  "scripts": {
+    "test": "playwright test",
+    "test:desktop": "playwright test --project=desktop-chrome --project=desktop-safari",
+    "test:mobile": "playwright test --project=mobile-chrome --project=mobile-safari",
+    "test:chrome": "playwright test --project=desktop-chrome",
+    "test:headed": "playwright test --project=desktop-chrome --headed --workers=1",
+    "test:debug": "playwright test --project=desktop-chrome --debug",
+    "test:stage": "LINGO_ENV=stage playwright test",
+    "list": "playwright test --list",
+    "report": "playwright show-report reports/html",
+    "selftest": "node scripts/selftest.js",
+    "install:browsers": "playwright install --with-deps chrome webkit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  },
+  "engines": { "node": ">=20" },
+  "imports": {
+    "#helpers/*": "./lingo/helpers/*",
+    "#testdata/*": "./lingo/testdata/*",
+    "#blocks/*": "./lingo/blocks/*",
+    "#steps/*": "./lingo/steps/*"
+  }
+}

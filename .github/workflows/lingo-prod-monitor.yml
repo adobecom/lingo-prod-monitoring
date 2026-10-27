@@ -1,0 +1,76 @@
+name: Lingo prod monitoring
+
+on:
+  schedule:
+    - cron: '30 3 * * *'        # daily 03:30 UTC (GitHub cron is UTC and can start a few minutes late)
+  workflow_dispatch:
+    inputs:
+      env:
+        description: 'Environment'
+        type: choice
+        options: [prod, stage]
+        default: prod
+      grep:
+        description: 'Optional tag/name filter, e.g. @akamai or @cookies'
+        required: false
+      project:
+        description: 'Optional single browser project'
+        type: choice
+        options: ['all', desktop-chrome, desktop-safari, mobile-chrome, mobile-safari]
+        default: all
+
+concurrency:
+  group: lingo-prod-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest        # use a self-hosted runner if Akamai blocks GitHub IP ranges (see SKILL.md)
+    timeout-minutes: 40
+    env:
+      CI: 'true'
+      LINGO_ENV: ${{ inputs.env || 'prod' }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      SLACK_MENTION: ${{ vars.SLACK_MENTION }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        # Commit package-lock.json (run `npm install` once locally) for reproducible installs.
+        run: if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+
+      - name: Install browsers (Google Chrome + WebKit)
+        run: npx playwright install --with-deps chrome webkit
+
+      - name: Run Lingo monitoring
+        id: tests
+        env:
+          GREP: ${{ inputs.grep }}
+          PROJECT: ${{ inputs.project }}
+        run: |
+          args=()
+          [ -n "$GREP" ] && args+=(--grep "$GREP")
+          [ -n "$PROJECT" ] && [ "$PROJECT" != "all" ] && args+=(--project "$PROJECT")
+          npx playwright test "${args[@]}"
+
+      - name: Upload report and traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lingo-report-${{ github.run_id }}
+          path: |
+            reports/html
+            reports/artifacts
+            reports/summary.json
+          retention-days: 14
+
+      # Safety net: if the run crashed before the reporter could post (install failure, config error ...)
+      - name: Slack fallback — run did not complete
+        if: failure() && hashFiles('reports/.slack-sent') == ''
+        run: |
+          [ -z "$SLACK_WEBHOOK_URL" ] && exit 0
+          curl -sS -X POST -H 'Content-type: application/json' "$SLACK_WEBHOOK_URL" --data "{\"text\":\"❌ Lingo prod monitoring did not complete (setup/infra error). ${SLACK_MENTION} <${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}|Open run>\"}"
